@@ -149,6 +149,9 @@ jobs:
           exit "$status"
 
       - name: Compare the pinned version against the newest stable tag on Docker Hub
+        # Runs even when the digest comparison above failed, so one run
+        # reports every problem it can see instead of one per day.
+        if: always()
         run: |
           # The image publishes no GitHub releases; its tags are the version list.
           # Only the stable line counts - `NN.N.N-release` - because that is the
