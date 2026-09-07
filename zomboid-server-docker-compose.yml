@@ -1,0 +1,129 @@
+# Image pin lives HERE, as an interpolation default, so `git pull` (or
+# re-downloading this file) delivers the exact image this repository has
+# tested. Set ZOMBOID_SERVER_IMAGE_VERSION in .env to run a different version
+# while the digest for it is fetched normally, or ZOMBOID_SERVER_IMAGE_TAG to
+# replace the whole reference. CI (the Trivy scan and check-pin-freshness)
+# reads the pin from this line: this block is the single source of truth.
+#
+# Only the stable line - NN.N.N-release - is ever pinned here. Every Steam
+# client is on it, and a server on any other branch kicks them with a
+# checksum mismatch that reads like a mod problem.
+x-images:
+  zomboid-server: &zomboid-server-image ${ZOMBOID_SERVER_IMAGE_TAG:-danixu86/project-zomboid-dedicated-server:${ZOMBOID_SERVER_IMAGE_VERSION:-42.20.4-release@sha256:a98b0f219f63ad9f08b0658cf77c2c165705ab8d74775fd3db6e50fd6f4961e1}}
+
+services:
+  zomboid-server:
+    image: *zomboid-server-image
+    # Handles untrusted input from the internet and cannot gain privileges
+    # through a setuid binary.
+    security_opt:
+      - no-new-privileges:true
+    # THE HUNGRIEST GAME IN THIS FAMILY. Peak 9.5 GB, resident 2.9 GB on the
+    # machine this template comes from, and the world grows as players
+    # explore it, so the ceiling is set well clear of the peak. The JVM's own
+    # heap is bounded separately below; this is the container.
+    deploy:
+      resources:
+        limits:
+          memory: ${ZOMBOID_SERVER_MEMORY_LIMIT:-12g}
+          cpus: "${ZOMBOID_SERVER_CPU_LIMIT:-4.0}"
+        reservations:
+          memory: ${ZOMBOID_SERVER_MEMORY_RESERVATION:-4g}
+          cpus: "${ZOMBOID_SERVER_CPU_RESERVATION:-1.0}"
+    ports:
+      # BOTH GAME PORTS, published under the numbers they bind. 16261 is the
+      # one the browser and the first handshake use; 16262 is the direct
+      # connection every client is handed after it. Forward only the first and
+      # players connect, wait, and time out with nothing in the log.
+      - "${ZOMBOID_SERVER_PORT:-16261}:${ZOMBOID_SERVER_PORT:-16261}/udp"
+      - "${ZOMBOID_SERVER_UDP_PORT:-16262}:${ZOMBOID_SERVER_UDP_PORT:-16262}/udp"
+      # Steam's own two.
+      - "${ZOMBOID_SERVER_STEAM_PORT_1:-8766}:${ZOMBOID_SERVER_STEAM_PORT_1:-8766}/udp"
+      - "${ZOMBOID_SERVER_STEAM_PORT_2:-8767}:${ZOMBOID_SERVER_STEAM_PORT_2:-8767}/udp"
+      # rcon stays inside the container. Anything that needs it runs in this
+      # container's network namespace; see the README.
+    environment:
+      # SERVERNAME IS THE SAVE DIRECTORY, NOT A LABEL. The world lives in
+      # Saves/<SERVERNAME> and its settings in Server/<SERVERNAME>.ini. Change
+      # it and Zomboid starts a NEW, EMPTY world, leaving the old one orphaned
+      # on disk with nothing pointing at it. The name players see is
+      # DISPLAYNAME below, and that one is safe to edit.
+      SERVERNAME: ${ZOMBOID_SERVER_SAVE_NAME:-servertest}
+      # NO PIPE CHARACTER IN THIS VALUE. The image writes settings with
+      # `sed -i "s|^${1}=.*|${1}=${2}|"`, which uses | as its own delimiter, so
+      # a display name containing | makes sed abort and the setting is
+      # silently never written.
+      DISPLAYNAME: ${ZOMBOID_SERVER_DISPLAY_NAME:-Project Zomboid Co-op}
+      # RUN STEAMCMD ON EVERY START. Without this the image never updates the
+      # game - its entrypoint calls steamcmd only when this is set - while every
+      # Steam client updates itself. The server then fails the anti-cheat file
+      # checksum and kicks players with "file doesn't match the one on the
+      # server". A weekly restart meant to fix this restarted into the same old
+      # build for weeks before anyone read the build id.
+      FORCEUPDATE: "true"
+      ADMINUSERNAME: ${ZOMBOID_SERVER_ADMIN_USERNAME:-admin}
+      ADMINPASSWORD: ${ZOMBOID_SERVER_ADMIN_PASSWORD:?set in .env - see .env.example for generation command}
+      RCONPASSWORD: ${ZOMBOID_SERVER_RCON_PASSWORD:?set in .env - see .env.example for generation command}
+      MAXPLAYERS: ${ZOMBOID_SERVER_MAX_PLAYERS:-8}
+      # false = not listed in the public browser. Friends connect by address.
+      PUBLIC: ${ZOMBOID_SERVER_PUBLIC:-false}
+      SERVERPRESET: ${ZOMBOID_SERVER_PRESET:-Apocalypse}
+      MIN_MEMORY: ${ZOMBOID_SERVER_JVM_MIN_MEMORY:-4096m}
+      MAX_MEMORY: ${ZOMBOID_SERVER_JVM_MAX_MEMORY:-8192m}
+      PORT: ${ZOMBOID_SERVER_PORT:-16261}
+      UDPPORT: ${ZOMBOID_SERVER_UDP_PORT:-16262}
+      STEAMPORT1: ${ZOMBOID_SERVER_STEAM_PORT_1:-8766}
+      STEAMPORT2: ${ZOMBOID_SERVER_STEAM_PORT_2:-8767}
+      TZ: ${ZOMBOID_SERVER_TIMEZONE:-UTC}
+    volumes:
+      # THE WORLD. Bases, loot, skills, accounts. This is the one thing in this
+      # stack that cannot be downloaded again.
+      - zomboid-server-data:/home/steam/Zomboid
+      # The game files, SteamCMD-managed, about 10 GB, replaceable at the cost
+      # of the download.
+      - zomboid-server-game:/home/steam/pz-dedicated
+    healthcheck:
+      # The server binary is ProjectZomboid64. A comm file holds fifteen
+      # characters, so it reads ProjectZomboid6 there, and an exact match on
+      # the full name would never be green; the anchor at the start of the
+      # line is what makes this both strict and true. No pgrep in this image.
+      # tests/e2e-healthcheck.sh runs it against a real container.
+      test: ["CMD-SHELL", "grep -qs '^ProjectZomboid' /proc/[0-9]*/comm"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      # The first start downloads the game through SteamCMD and loads the
+      # world; a start period shorter than that marks the container unhealthy
+      # for the whole of it.
+      start_period: ${ZOMBOID_SERVER_START_PERIOD:-25m}
+    # THE WORLD IS SAVED ON THE WAY OUT. Two minutes: a large map with many
+    # loaded chunks takes well over the ten seconds docker allows by default,
+    # and a SIGKILL in the middle of it is a corrupted save.
+    stop_grace_period: ${ZOMBOID_SERVER_STOP_GRACE_PERIOD:-2m}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: ${ZOMBOID_SERVER_LOG_MAX_SIZE:-10m}
+        max-file: "${ZOMBOID_SERVER_LOG_MAX_FILE:-3}"
+
+# BOTH DECLARED EXTERNAL SO `docker compose down -v` CANNOT DELETE THEM.
+#
+# `down -v` is the command everybody reaches for when a stack misbehaves. On a
+# project-managed volume it removes the world without asking — every base, every
+# character — and the game files with it. As external volumes compose mounts
+# them and refuses to create or destroy them. Create both before the first
+# start:
+#
+#   docker volume create zomboid-server-data
+#   docker volume create zomboid-server-game
+#
+# Removing them is then a deliberate act that names the thing being destroyed,
+# which is the entire point.
+volumes:
+  zomboid-server-data:
+    name: zomboid-server-data
+    external: true
+  zomboid-server-game:
+    name: zomboid-server-game
+    external: true
