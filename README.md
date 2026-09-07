@@ -67,7 +67,7 @@ print(s.recv(4096)[12:].decode(errors="replace"))'
 
 ## Updating
 
-The pin lives in the `x-images` block at the top of the compose file, as an interpolation default, so a `git pull` delivers the version this repository has tested. Only the stable `NN.N.N-release` line is ever pinned: every Steam client is on it. The daily freshness check compares the pin against the newest stable tag on Docker Hub and goes red when a newer one exists.
+The pin lives in the `x-images` block at the top of the compose file, as an interpolation default, so a `git pull` delivers the version this repository has tested. Only the stable `NN.N.N-release` line is ever pinned: every Steam client is on it. The daily freshness check compares the pin against the newest stable tag on Docker Hub and goes red when a newer one exists. `./update.sh` does that on purpose: it moves to the latest release tag, refuses to cross a major unattended, and names any new required variable before anything has moved.
 
 ## Testing
 

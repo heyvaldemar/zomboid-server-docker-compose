@@ -9,15 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _(no unreleased changes yet)_
 
-## [1.0.0] - 2026-09-07
+## [1.1.0] - 2026-09-07
 
 ### Added
 
-- **A private Project Zomboid co-op server**, image pinned by digest as an
-  interpolation default, so `git pull` delivers the version this repository
-  has tested and `.env` overrides survive it. Only the stable
-  `NN.N.N-release` line is ever pinned, and the daily freshness check compares
-  it against the newest stable tag on Docker Hub.
+- **`update.sh`: move between release tags on purpose.** It updates to the latest release (a combination this repository's CI has booted and smoke-tested), refuses to cross a major version unattended, refuses to run over local changes, and names any new required variable before anything has moved. `--dry-run` says what would happen.
+
+west stable tag on Docker Hub.
 - **Both volumes declared external**, so `docker compose down -v` cannot
   delete the world — every base, every character — or the 10 GB of game
   files.
@@ -48,5 +46,6 @@ _(no unreleased changes yet)_
   suite. It deliberately does not boot the game: the first start is a 10 GB
   download.
 
-[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/releases/tag/v1.0.0
