@@ -169,9 +169,18 @@ jobs:
           if [ -z "$latest" ]; then
             echo "::error::Could not read the tag list from Docker Hub"
             status=1
-          elif [ "$pinned_version" != "$latest" ]; then
+          # ORDER, NOT INEQUALITY. `!=` calls any difference "behind", including
+          # being ahead, and GitHub's releases/latest is the most recently
+          # PUBLISHED release rather than the highest version. A project that
+          # ships a maintenance release for an older branch after a newer one
+          # then fails every day, asserting a direction nothing established.
+          # sort -V because a string compare puts 3.10 below 3.7.
+          elif [ "${pinned_version#v}" != "${latest#v}" ] \
+               && [ "$(printf '%s\n%s\n' "${pinned_version#v}" "${latest#v}" | sort -V | head -1)" = "${pinned_version#v}" ]; then
             echo "::error::ZOMBOID_SERVER_IMAGE_TAG is behind: pinned ${pinned_version}, newest stable tag is ${latest}"
             status=1
+          elif [ "${pinned_version#v}" != "${latest#v}" ]; then
+            echo "${var} ${pinned_version} is ahead of the published ${latest}, which is what a maintenance release for an older branch looks like"
           else
             echo "ZOMBOID_SERVER_IMAGE_TAG ${pinned_version} is the newest stable tag"
           fi
