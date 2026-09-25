@@ -1,6 +1,7 @@
 # Project Zomboid server using Docker Compose
 
 [![Deployment Verification](https://github.com/heyvaldemar/zomboid-server-docker-compose/actions/workflows/deployment-verification.yml/badge.svg?branch=main)](https://github.com/heyvaldemar/zomboid-server-docker-compose/actions/workflows/deployment-verification.yml)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14885/badge)](https://www.bestpractices.dev/projects/14885)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A private Project Zomboid co-op server, pinned by digest, with a persistent world that this file is arranged around not losing.
