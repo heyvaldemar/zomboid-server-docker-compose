@@ -17,8 +17,22 @@
 #
 # Safe by design: skipped entirely if anyone is playing, and a backup is taken
 # first.
+#
+#   scripts/refresh.sh             refresh if nobody is on
+#   scripts/refresh.sh --dry-run   say what it would do, change nothing
+#   scripts/refresh.sh --force     refresh even with players on, or unknown
 set -u
 cd "$(dirname "$0")/.." || exit 1
+
+DRY_RUN=false
+FORCE=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=true ;;
+    --force) FORCE=true ;;
+    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+  esac
+done
 
 PROJECT="${ZOMBOID_PROJECT:-zomboid}"
 COMPOSE="zomboid-server-docker-compose.yml"
@@ -31,24 +45,50 @@ buildid() {
   docker exec "$cid" sh -c "grep -oE '\"buildid\"[^0-9]+[0-9]+' $MANIFEST 2>/dev/null | grep -oE '[0-9]+\$'" 2>/dev/null
 }
 
-# Anyone online? A2S_INFO on the game port, from inside the namespace. The
-# reply carries the player count; an unreachable server is treated as empty,
-# because the recreate below heals that too.
+# Anyone online? A2S_INFO on the game port, from inside the namespace; the
+# reply carries the player count.
+#
+# AN UNANSWERED QUERY IS NOT AN EMPTY SERVER. This used to read one as zero,
+# on the theory that the recreate below would heal a server that does not
+# answer. But a server busy saving, or a query lost on the way, answers
+# nothing too, and reading that as zero recreates the server under whoever is
+# on it. On the machine this template comes from, the same assumption had
+# three game stacks reading as empty whatever was happening on them, and the
+# roll that would have recreated them under a full evening of players was
+# stopped by hand. Now the query is asked three times, and a server that
+# never answers is "?", skipped like an occupied one: this script exits 1 and
+# says so, because a refresh that can never tell is a probe somebody should
+# look at. --force refreshes anyway. tests/e2e-refresh.sh proves all of it.
 players="$(docker run --rm --network "container:$cid" python:3.13-alpine python3 -c '
 import socket
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(6)
 req = b"\xff\xff\xff\xff\x54Source Engine Query\x00"
-try:
-    s.sendto(req, ("127.0.0.1", 16261)); d, _ = s.recvfrom(4096)
-    if d[4:5] == b"\x41":
-        s.sendto(req + d[5:9], ("127.0.0.1", 16261)); d, _ = s.recvfrom(4096)
-    b = d[6:]; p = b.split(b"\x00", 4)
-    print(b[len(p[0]) + len(p[1]) + len(p[2]) + len(p[3]) + 4:][2])
-except Exception:
-    print(0)
-' 2>/dev/null || echo 0)"
-if [ "${players:-0}" -gt 0 ]; then
+for _ in range(3):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(6)
+    try:
+        s.sendto(req, ("127.0.0.1", 16261)); d, _ = s.recvfrom(4096)
+        if d[4:5] == b"\x41":
+            s.sendto(req + d[5:9], ("127.0.0.1", 16261)); d, _ = s.recvfrom(4096)
+        b = d[6:]; p = b.split(b"\x00", 4)
+        print(b[len(p[0]) + len(p[1]) + len(p[2]) + len(p[3]) + 4:][2])
+        break
+    except Exception:
+        continue
+    finally:
+        s.close()
+else:
+    print("?")
+' 2>/dev/null || echo "?")"
+case "$players" in ''|*[!0-9]*) players="?" ;; esac
+if [ "$players" = "?" ] && [ "$FORCE" != "true" ]; then
+  echo "$(date '+%F %T') skip: the server did not answer the player query three times, so nobody can say who is on; --force refreshes anyway" >&2
+  exit 1
+fi
+if [ "$players" != "?" ] && [ "$players" -gt 0 ] && [ "$FORCE" != "true" ]; then
   echo "$(date '+%F %T') skip: $players player(s) online"
+  exit 0
+fi
+if [ "$DRY_RUN" = "true" ]; then
+  echo "$(date '+%F %T') would refresh: players online: $players$([ "$FORCE" = "true" ] && echo ', forced')"
   exit 0
 fi
 

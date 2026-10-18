@@ -117,6 +117,16 @@ jobs:
           chmod +x tests/e2e-healthcheck.sh
           ./tests/e2e-healthcheck.sh
 
+      - name: The refresh never recreates a server it cannot count
+        # A fixture answers A2S with two players, three behind the challenge,
+        # none, or not at all. Two players and silence must both leave the
+        # server untouched, and silence must exit 1; nobody on, or --force,
+        # must go ahead. tests/e2e-refresh.sh says why.
+        run: |
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 tests/e2e-refresh.sh scripts/refresh.sh
+          chmod +x tests/e2e-refresh.sh
+          ./tests/e2e-refresh.sh
+
       - name: The compose file parses with the shipped defaults
         run: |
           sed -E 's/^([A-Z0-9_]+)=$/\1=ci-placeholder/' .env.example > .env

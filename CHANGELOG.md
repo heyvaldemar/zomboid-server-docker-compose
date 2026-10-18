@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.2.0] - 2026-10-18
+
+### Added
+
+- **`scripts/refresh.sh --dry-run` and `--force`.** The first says what the refresh would do and changes nothing; the second refreshes with players on, or with nobody able to say.
+
 ### Changed
 
 - **The freshness check has its own workflow, Pin Freshness.** It ran inside Deployment Verification, whose badge is the one at the top of this README. Across the fleet, nine red runs in ten were a pin one version behind - which the fleet's triage moves within the day - and a reader cannot tell that from a stack that does not boot. The badge now says whether the stack boots. The job itself is unchanged.
 
 ### Fixed
 
+- **The weekly refresh no longer recreates a server that does not answer.** `scripts/refresh.sh` read an unanswered player query as zero players, so a server busy saving, or a lost packet, meant a recreate under whoever was on. It now asks three times, skips a server that never answers and exits 1 for it. The same assumption had three stacks reading as empty on the machine this template comes from. `tests/e2e-refresh.sh` runs in Deployment Verification; against the old script it never got past the silent server.
 - **`update.sh` no longer stops without a word when a release adds a variable and no compose file requires one.** The search for `${VAR:?}` came back empty, and under `pipefail` that empty result ended the script with status 1 right after it listed the new variables.
 - **`update.sh` stops on a `.env` it cannot read, before the checkout.** It used to fall through: every new required variable read as "not set", or, with none, the tree moved to the new tag and `docker compose up` failed on the permission. Now it names the file, its owner and mode, and changes nothing.
 
@@ -53,6 +62,7 @@ west stable tag on Docker Hub.
   suite. It deliberately does not boot the game: the first start is a 10 GB
   download.
 
-[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/releases/tag/v1.0.0
