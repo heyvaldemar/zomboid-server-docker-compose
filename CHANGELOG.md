@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Fixed
+
+- **Pin Freshness names the variable when the pin is ahead of the newest stable tag on Docker Hub.** The line read `${var}`, which is set only in the step before, so it began with a blank. It now says `ZOMBOID_SERVER_IMAGE_TAG`. Only the message changed; the check passes and fails as before.
 
 ## [1.2.0] - 2026-10-18
 

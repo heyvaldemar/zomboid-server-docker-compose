@@ -123,7 +123,7 @@ jobs:
             echo "::error::ZOMBOID_SERVER_IMAGE_TAG is behind: pinned ${pinned_version}, newest stable tag is ${latest}"
             status=1
           elif [ "${pinned_version#v}" != "${latest#v}" ]; then
-            echo "${var} ${pinned_version} is ahead of the published ${latest}, which is what a maintenance release for an older branch looks like"
+            echo "ZOMBOID_SERVER_IMAGE_TAG ${pinned_version} is ahead of the published ${latest}, which is what a maintenance release for an older branch looks like"
           else
             echo "ZOMBOID_SERVER_IMAGE_TAG ${pinned_version} is the newest stable tag"
           fi
