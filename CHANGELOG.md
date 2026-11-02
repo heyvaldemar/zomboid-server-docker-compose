@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.2.2] - 2026-11-02
+
 ### Fixed
 
 - **A restart whose earlier build could not be read is no longer reported as an update.** When the build id before the recreate cannot be read, `scripts/refresh.sh` said "updated: build unknown -> N", claiming a change nobody could see. It now says "restarted, now on build N (the build before the restart could not be read)", as the server this template comes from does. `tests/e2e-refresh.sh` case 7; the released script fails it.
@@ -71,7 +75,8 @@ west stable tag on Docker Hub.
   suite. It deliberately does not boot the game: the first start is a 10 GB
   download.
 
-[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.0.0...v1.1.0
