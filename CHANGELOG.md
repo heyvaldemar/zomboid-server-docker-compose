@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.2.1] - 2026-11-02
+
 ### Fixed
 
 - **Docker's own message is no longer reported as the new build.** After the recreate, `scripts/refresh.sh` reads the build again to say what happened. When the container is stopped under that exec, Docker prints "cannot exec in a stopped state" on stdout with exit 128 (measured on Docker 29.7.2), and the refresh reported "updated: build 100 -> cannot exec in a stopped state" and exited 0. The build is now a number from an exec that ended with 0, or unknown, and an unknown one after the recreate is the exit-1 "could not be read" it always was meant to be. `tests/e2e-refresh.sh` case 6 plays it through a wrapper around the real `docker`; the released script fails it. On the server this template comes from, a chat bot read a Docker error on stdout as part of a game's log.
@@ -65,7 +69,8 @@ west stable tag on Docker Hub.
   suite. It deliberately does not boot the game: the first start is a 10 GB
   download.
 
-[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/releases/tag/v1.0.0
