@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker's own message is no longer reported as the new build.** After the recreate, `scripts/refresh.sh` reads the build again to say what happened. When the container is stopped under that exec, Docker prints "cannot exec in a stopped state" on stdout with exit 128 (measured on Docker 29.7.2), and the refresh reported "updated: build 100 -> cannot exec in a stopped state" and exited 0. The build is now a number from an exec that ended with 0, or unknown, and an unknown one after the recreate is the exit-1 "could not be read" it always was meant to be. `tests/e2e-refresh.sh` case 6 plays it through a wrapper around the real `docker`; the released script fails it. On the server this template comes from, a chat bot read a Docker error on stdout as part of a game's log.
 - **Pin Freshness names the variable when the pin is ahead of the newest stable tag on Docker Hub.** The line read `${var}`, which is set only in the step before, so it began with a blank. It now says `ZOMBOID_SERVER_IMAGE_TAG`. Only the message changed; the check passes and fails as before.
 
 ## [1.2.0] - 2026-10-18

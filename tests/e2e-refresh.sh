@@ -115,6 +115,33 @@ start silent
 out="$(ZOMBOID_PROJECT="$p" refresh --dry-run --force 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && grep -q "would refresh: players online: ?, forced" <<<"$out"; then pass "no answer, --force: it would refresh"; else fail "no answer, --force: exit $rc, said: $out"; fi
 
+# 6. DOCKER'S OWN MESSAGE IS NOT A BUILD. After the recreate, the build is read
+# again to report what happened, and if the container stops under that exec,
+# Docker prints "cannot exec in a stopped state" on stdout with exit 128
+# (measured on Docker 29.7.2). A wrapper early in PATH passes every docker
+# call to the real one except the ones this case plays: the recreate and the
+# backup do nothing, the container reports healthy, and the build reads 100
+# before and Docker's message after.
+REAL_DOCKER="$(command -v docker)"
+mkdir -p "$WORK/bin"
+cat >"$WORK/bin/docker" <<'SH'
+#!/bin/bash
+case " $* " in
+  *" exec "*appmanifest*)
+    n=$(( $(cat "$READS" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$READS"
+    if [ "$n" = 1 ]; then echo 100; exit 0; fi
+    echo "cannot exec in a stopped state"; exit 128 ;;
+  *" compose "*" up "*--force-recreate*) exit 0 ;;
+  *" inspect "*Health*) echo healthy; exit 0 ;;
+  *" run "*:/out*) exit 1 ;;
+esac
+exec "$REAL_DOCKER" "$@"
+SH
+chmod +x "$WORK/bin/docker"
+start players:0
+out="$(PATH="$WORK/bin:$PATH" REAL_DOCKER="$REAL_DOCKER" READS="$WORK/reads" ZOMBOID_PROJECT="$p" refresh 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "the build id could not be read" <<<"$out"; then pass "Docker's message where the build goes: not a build, exit 1"; else fail "Docker's message where the build goes: exit $rc, said: $out"; fi
+
 echo
 echo "passed: $PASSED   failed: $FAILED"
 [ "$FAILED" -eq 0 ]

@@ -41,8 +41,14 @@ MANIFEST='/home/steam/pz-dedicated/steamapps/appmanifest_380870.acf'
 cid="$(docker compose -p "$PROJECT" ps -q zomboid-server 2>/dev/null || true)"
 [ -n "$cid" ] || { echo "$(date '+%F %T') the server is not running; nothing to refresh"; exit 0; }
 
+# A number from an exec that ended with 0, or nothing. When the container is
+# stopped under the exec, Docker prints "cannot exec in a stopped state" on
+# stdout with exit 128, and that text once came out of this as the build:
+# "updated: build ... -> cannot exec in a stopped state", exit 0.
 buildid() {
-  docker exec "$cid" sh -c "grep -oE '\"buildid\"[^0-9]+[0-9]+' $MANIFEST 2>/dev/null | grep -oE '[0-9]+\$'" 2>/dev/null
+  local out
+  out=$(docker exec "$cid" sh -c "grep -oE '\"buildid\"[^0-9]+[0-9]+' $MANIFEST 2>/dev/null | grep -oE '[0-9]+\$'" 2>/dev/null) || return 0
+  case "$out" in ''|*[!0-9]*) ;; *) echo "$out" ;; esac
 }
 
 # Anyone online? A2S_INFO on the game port, from inside the namespace; the
