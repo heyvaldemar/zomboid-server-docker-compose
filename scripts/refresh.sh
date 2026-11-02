@@ -123,6 +123,10 @@ if [ -z "$after" ]; then
   exit 1
 elif [ "$after" = "$before" ]; then
   echo "$(date '+%F %T') already current: build $after"
+elif [ -z "$before" ]; then
+  # Not "updated": with no build from before the restart, nobody can say
+  # whether it changed.
+  echo "$(date '+%F %T') restarted, now on build $after (the build before the restart could not be read)"
 else
-  echo "$(date '+%F %T') updated: build ${before:-unknown} -> $after"
+  echo "$(date '+%F %T') updated: build $before -> $after"
 fi

@@ -129,7 +129,9 @@ cat >"$WORK/bin/docker" <<'SH'
 case " $* " in
   *" exec "*appmanifest*)
     n=$(( $(cat "$READS" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$READS"
-    if [ "$n" = 1 ]; then echo 100; exit 0; fi
+    # ORDER says which of the two reads fails: the second (case 6) or the first.
+    if [ "${ORDER:-second}" = second ] && [ "$n" = 1 ]; then echo 100; exit 0; fi
+    if [ "${ORDER:-second}" = first ] && [ "$n" = 2 ]; then echo 100; exit 0; fi
     echo "cannot exec in a stopped state"; exit 128 ;;
   *" compose "*" up "*--force-recreate*) exit 0 ;;
   *" inspect "*Health*) echo healthy; exit 0 ;;
@@ -141,6 +143,13 @@ chmod +x "$WORK/bin/docker"
 start players:0
 out="$(PATH="$WORK/bin:$PATH" REAL_DOCKER="$REAL_DOCKER" READS="$WORK/reads" ZOMBOID_PROJECT="$p" refresh 2>&1)"; rc=$?
 if [ "$rc" = 1 ] && grep -q "the build id could not be read" <<<"$out"; then pass "Docker's message where the build goes: not a build, exit 1"; else fail "Docker's message where the build goes: exit $rc, said: $out"; fi
+
+# 7. The other way round: the build before the restart is the one that could
+# not be read. That is no "update": the run says it restarted, and which build
+# it is on now.
+start players:0
+out="$(PATH="$WORK/bin:$PATH" REAL_DOCKER="$REAL_DOCKER" READS="$WORK/reads7" ORDER=first ZOMBOID_PROJECT="$p" refresh 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -q "restarted, now on build 100 (the build before the restart could not be read)" <<<"$out" && ! grep -q "updated:" <<<"$out"; then pass "the build before the restart unreadable: says restarted, not updated"; else fail "the build before unreadable: exit $rc, said: $out"; fi
 
 echo
 echo "passed: $PASSED   failed: $FAILED"

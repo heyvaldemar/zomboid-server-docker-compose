@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Fixed
+
+- **A restart whose earlier build could not be read is no longer reported as an update.** When the build id before the recreate cannot be read, `scripts/refresh.sh` said "updated: build unknown -> N", claiming a change nobody could see. It now says "restarted, now on build N (the build before the restart could not be read)", as the server this template comes from does. `tests/e2e-refresh.sh` case 7; the released script fails it.
 
 ## [1.2.1] - 2026-11-02
 
