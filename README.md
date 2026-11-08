@@ -19,7 +19,7 @@ The first start downloads the game through SteamCMD, about 10 GB, then creates t
 
 ```bash
 docker compose -p zomboid logs -f zomboid-server
-docker compose -p zomboid ps          # healthy once ProjectZomboid64 is up
+docker compose -p zomboid ps          # healthy once the server answers A2S_INFO
 ```
 
 Players connect by address on 16261; the server is not in the public browser unless `.env` says so.
@@ -41,6 +41,8 @@ Players connect by address on 16261; the server is not in the public browser unl
 **Two minutes to stop.** The world is saved on the way out, and a large map with many loaded chunks takes well over the ten seconds docker allows by default. A SIGKILL in the middle of that is a corrupted save.
 
 **The memory ceiling is measured, not guessed.** Peak 9.5 GB, resident 2.9 GB, on a world a group of four had explored for months. The world grows, so the ceiling sits well clear of the peak, and the JVM heap is bounded separately so the two cannot argue.
+
+**The health check asks the server, not its process.** `tools/healthcheck.sh`, mounted read-only, sends A2S_INFO, the Steam query every server browser sends, to the game port and is healthy only on the server's reply. Up to v1.2.2 it looked for `ProjectZomboid` in `/proc`, and a hung or stopped server keeps its process. It does not use rcon, which answers one packet late (below). While SteamCMD downloads and the world loads, nothing answers, so the check is red then. Each check ends within 7 seconds, inside the 10 Docker gives it. **It asks from inside the container**: healthy proves the server answers there, not that the ports are published on the host or open in your firewall; joining from outside is the test of that.
 
 **The rcon reply arrives one packet late.** Project Zomboid answers command N when command N+1 is sent — measured, not folklore. Any tool that reads one reply per command reads an empty packet and reports success. `scripts/set-password.sh` sends a harmless second command to flush the first one's reply, and then does not trust the reply anyway: it reads the stored bcrypt hash before and after and exits non-zero if it did not change.
 
@@ -76,9 +78,9 @@ The pin lives in the `x-images` block at the top of the compose file, as an inte
 
 ## Testing
 
-`tests/e2e-healthcheck.sh` runs the health check in both directions against a fixture with no game download. CI runs it on every push alongside shell and workflow linting, a Trivy scan of the pinned image, and a daily check that the pin still resolves to what upstream publishes.
+CI installs the game from Steam and boots it on every push, about 10 GB and a new world, then: samples the health check 45 seconds in and needs it red; waits for it to go green on the server's A2S answer; **stops the server** with SIGSTOP and needs it red while the old `/proc` check stays green, and green again after SIGCONT.
 
-CI does not boot the game. The first start is a 10 GB SteamCMD download, and a test that pretends a runner does that in time is a test that never runs.
+`tests/e2e-healthcheck.sh` runs the health check in the pinned image against a stand-in that answers A2S_INFO, answers after a challenge, stays silent, or is not there: healthy, healthy, unhealthy within 7 seconds, unhealthy. CI runs it on every push alongside shell and workflow linting, a Trivy scan of the pinned image, and a daily check that the pin still resolves to what upstream publishes.
 
 ---
 

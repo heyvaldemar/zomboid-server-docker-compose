@@ -107,12 +107,12 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 tests/e2e-healthcheck.sh
 
-      - name: Prove the exact match catches what a substring match misses
-        # Assertions against a real container, with no game download: two
-        # processes named cs2 and cs2.sh are the whole fixture. The game is
-        # killed and the exact check must go red while the substring check
-        # stays green - if the substring form ever failed too, the comment in
-        # the compose file would be wrong and the run says so.
+      - name: The health check goes by the game's answer, in the pinned image
+        # tools/healthcheck.sh is healthy only on the server's reply to
+        # A2S_INFO. Run in the pinned image, so its tools are proven there,
+        # against a stand-in that answers, answers after a challenge, stays
+        # silent, or is not there at all (tests/fixtures/fake-a2s.py). The real
+        # server is the game job below.
         run: |
           chmod +x tests/e2e-healthcheck.sh
           ./tests/e2e-healthcheck.sh
@@ -132,3 +132,105 @@ jobs:
           sed -E 's/^([A-Z0-9_]+)=$/\1=ci-placeholder/' .env.example > .env
           docker compose -f zomboid-server-docker-compose.yml config >/dev/null
           echo "compose OK"
+
+  game:
+    name: The real server, and the health check asking it
+    # The game is about 10 GB, small enough for every push. It is installed
+    # the way a first start does, the world is created, and the health check
+    # is proven against it both ways: red until the server answers, green on
+    # its A2S answer, red with the server stopped by SIGSTOP while the old
+    # /proc check stays green, green again after SIGCONT.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      COMPOSE: docker compose -f zomboid-server-docker-compose.yml -p zomboid
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Make room for the game
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost
+          df -h /
+
+      - name: Docker 29.4.2 answers socketcall with ENOSYS; give its daemon the profile 29.4.3 ships
+        # SteamCMD is 32-bit and makes every socket through socketcall(2),
+        # which Docker Engine 29.4.2 alone refuses (moby/moby#52506); the
+        # ubuntu-26.04 runner ships it. On that version, and only there, the
+        # daemon gets the default profile 29.4.3 ships (moby/profiles seccomp
+        # v0.2.3), pinned by commit and checksum.
+        run: |
+          v="$(docker version --format '{{.Server.Version}}')"
+          if [ "$v" != 29.4.2 ]; then echo "Docker $v: its own profile allows socketcall"; exit 0; fi
+          sudo curl -fsSL -o /etc/docker/seccomp-29.4.3.json \
+            https://raw.githubusercontent.com/moby/profiles/836ae4d37ef2ec995c77c99fc55f5b5f3af3a897/seccomp/default.json
+          echo "536529b665dd0972c37bfb569f5d4ac8a53592e7b00752bc39ff063ca9864c74  /etc/docker/seccomp-29.4.3.json" | sha256sum -c -
+          f=/etc/docker/daemon.json
+          [ -s "$f" ] || echo '{}' | sudo tee "$f" >/dev/null
+          sudo jq '. + {"seccomp-profile": "/etc/docker/seccomp-29.4.3.json"}' "$f" | sudo tee "$f.new" >/dev/null
+          sudo mv "$f.new" "$f"
+          sudo systemctl restart docker
+
+      - name: First start - the game is downloaded and the world created
+        run: |
+          cp .env.example .env
+          sed -i -e "s/^ZOMBOID_SERVER_ADMIN_PASSWORD=.*/ZOMBOID_SERVER_ADMIN_PASSWORD=$(openssl rand -hex 16)/" \
+                 -e "s/^ZOMBOID_SERVER_RCON_PASSWORD=.*/ZOMBOID_SERVER_RCON_PASSWORD=$(openssl rand -hex 16)/" .env
+          docker volume create zomboid-server-data >/dev/null
+          docker volume create zomboid-server-game >/dev/null
+          $COMPOSE up -d
+
+      - name: Before the server answers, the check is red
+        run: |
+          cid="$($COMPOSE ps -q zomboid-server)"
+          sleep 45
+          n=0; out="$(docker exec "$cid" bash /healthcheck.sh 16261 2>&1)" || n=$?
+          echo "45 s in: the check exits $n: $out"
+          [ "$n" = 1 ] || { echo "::error::the check was green 45 seconds into a first start"; exit 1; }
+
+      - name: Wait for the health check to go green
+        run: |
+          cid="$($COMPOSE ps -q zomboid-server)"
+          for _ in $(seq 1 180); do
+            s="$(docker inspect "$cid" --format '{{.State.Health.Status}}' 2>/dev/null || echo none)"
+            [ "$s" = healthy ] && { echo "health: $s"; docker exec "$cid" bash /healthcheck.sh 16261; exit 0; }
+            [ "$s" = unhealthy ] && break
+            sleep 10
+          done
+          echo "::error::the server never reported healthy"
+          $COMPOSE logs --tail 80
+          echo "--- the health check's own words, last runs"
+          docker inspect "$cid" --format '{{range .State.Health.Log}}exit {{.ExitCode}}: {{.Output}}{{end}}' | tail -c 2000
+          echo "--- UDP sockets in the container"
+          docker exec "$cid" cat /proc/net/udp
+          exit 1
+
+      - name: Plant - a stopped server keeps its process, and the check goes red
+        # The check up to v1.2.2 looked for ProjectZomboid in /proc. SIGSTOP
+        # leaves the process there and the server deaf: that check must still
+        # pass and this one fail; after SIGCONT this one passes again.
+        run: |
+          cid="$($COMPOSE ps -q zomboid-server)"
+          # shellcheck disable=SC2016  # expanded by the container's shell
+          pid="$(docker exec "$cid" sh -c 'for p in /proc/[0-9]*; do case "$(cat "$p/comm" 2>/dev/null)" in ProjectZomboid*) echo "${p#/proc/}";; esac; done' | head -1)"
+          [ -n "$pid" ] || { echo "::error::no ProjectZomboid process to stop"; exit 1; }
+          docker exec "$cid" sh -c "kill -STOP $pid"
+          o=0; docker exec "$cid" sh -c "grep -qs '^ProjectZomboid' /proc/[0-9]*/comm" || o=$?
+          n=0; docker exec "$cid" bash /healthcheck.sh 16261 || n=$?
+          docker exec "$cid" sh -c "kill -CONT $pid"
+          echo "server stopped: the old check exits $o, the new one $n"
+          [ "$o" = 0 ] && [ "$n" = 1 ] || { echo "::error::expected the old check to pass (0) and the new one to fail (1)"; exit 1; }
+          for _ in $(seq 1 30); do
+            docker exec "$cid" bash /healthcheck.sh 16261 && exit 0
+            sleep 2
+          done
+          echo "::error::the server did not answer again after SIGCONT"; exit 1
+
+      - name: Stop
+        if: always()
+        run: |
+          $COMPOSE down -t 120 >/dev/null 2>&1 || true
+          docker volume rm -f zomboid-server-data zomboid-server-game >/dev/null 2>&1 || true
