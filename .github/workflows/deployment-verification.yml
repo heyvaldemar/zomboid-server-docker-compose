@@ -208,30 +208,29 @@ jobs:
           docker exec "$cid" cat /proc/net/udp
           exit 1
 
-      - name: Plant - a stopped server keeps its process, and the check goes red
-        # The check up to v1.2.2 looked for ProjectZomboid in /proc. SIGSTOP
-        # leaves the process there and the server deaf: that check must still
-        # pass and this one fail; after SIGCONT this one passes again.
+      - name: Plant - the process that answers, stopped, keeps the old check green and turns this one red
+        # The check up to v1.2.2 was ProjectZomboid in /proc. SIGSTOP on the process that
+        # owns the port's UDP socket (tests/fixtures/port-owner.sh; a name match
+        # is not enough, LinuxGSM's tmux carries the game's name and stopping it
+        # stops nothing that answers) leaves every process there and nothing
+        # answering: the old check must still pass and this one fail; after
+        # SIGCONT this one passes again.
         run: |
           cid="$($COMPOSE ps -q zomboid-server)"
-          # Found and signalled in one exec: between two, a wrapper can replace
-          # the process and the pid is gone ("kill: No such process", once).
-          sig() {  # STOP or CONT every ProjectZomboid* process; prints how many
-            # shellcheck disable=SC2016  # expanded by the container's shell
-            docker exec "$cid" sh -c 'n=0; for p in /proc/[0-9]*; do case "$(cat "$p/comm" 2>/dev/null)" in ProjectZomboid*) kill -"$0" "${p#/proc/}" 2>/dev/null && n=$((n+1));; esac; done; echo "$n"' "$1"
-          }
-          k="$(sig STOP)"
-          [ "${k:-0}" -gt 0 ] || { echo "::error::no ProjectZomboid process to stop"; exit 1; }
+          own="$(docker exec -i "$cid" sh -s 16261 < tests/fixtures/port-owner.sh)" || { echo "::error::nobody this check can see owns UDP 16261"; exit 1; }
+          pid="${own%% *}"
+          docker exec "$cid" sh -c "kill -STOP $pid"
+          st="$(docker exec "$cid" sh -c "cut -d' ' -f3 /proc/$pid/stat")"
           o=0; docker exec "$cid" sh -c "grep -qs '^ProjectZomboid' /proc/[0-9]*/comm" || o=$?
-          n=0; docker exec "$cid" bash /healthcheck.sh 16261 || n=$?
-          sig CONT >/dev/null
-          echo "server stopped ($k process(es)): the old check exits $o, the new one $n"
+          n=0; out="$(docker exec "$cid" bash /healthcheck.sh 16261 2>&1)" || n=$?
+          docker exec "$cid" sh -c "kill -CONT $pid"
+          echo "UDP 16261 belongs to pid $pid (${own#* }), state $st after SIGSTOP: the old check exits $o, the new one $n: $out"
           [ "$o" = 0 ] && [ "$n" = 1 ] || { echo "::error::expected the old check to pass (0) and the new one to fail (1)"; exit 1; }
           for _ in $(seq 1 30); do
             docker exec "$cid" bash /healthcheck.sh 16261 && exit 0
             sleep 2
           done
-          echo "::error::the server did not answer again after SIGCONT"; exit 1
+          echo "::error::the game did not answer again after SIGCONT"; exit 1
 
       - name: Stop
         if: always()
