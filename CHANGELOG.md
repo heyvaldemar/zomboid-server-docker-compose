@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.3.0] - 2026-11-08
+
 ### Changed
 
 - **The health check asks the server, not its process.** It looked for `ProjectZomboid` in `/proc`, which a hung or stopped server keeps. `tools/healthcheck.sh`, mounted read-only, now sends A2S_INFO to the game port and is healthy only on the server's reply (challenge handled, two tries, within 7 seconds); not rcon, which answers one packet late. It asks from inside the container, so it does not prove the ports are published on the host or open in a firewall; the README says so.
 - **CI boots the real server on every push.** A new job installs the game, about 10 GB, creates the world, and proves the health check against it: red 45 seconds into the first start, green on the server's A2S answer, red with the server stopped by SIGSTOP while the old `/proc` check stays green, green again after SIGCONT. The stand-in test runs the check in the pinned image. The README said CI could not do this in time; it can.
 - **The README names Docker Engine 29.4.2.** That release alone stops SteamCMD, which this image runs to install and update the game (measured on this template's pinned image in tf2-server-docker-compose run 42496129688): upgrade to 29.4.3 or later, which reverted the rule, or point the daemon's `seccomp-profile` at the profile 29.4.3 ships. Ubuntu 26.04's own `docker.io` (27.5.1) never had it; on GitHub Actions the ubuntu-26.04 runner image ships it ([actions/runner-images#14790](https://github.com/actions/runner-images/issues/14790), moving to 29.7.2 in [#15205](https://github.com/actions/runner-images/pull/15205)). Documentation only.
-
 ## [1.2.2] - 2026-11-02
 
 ### Fixed
@@ -79,7 +82,8 @@ west stable tag on Docker Hub.
   suite. It deliberately does not boot the game: the first start is a 10 GB
   download.
 
-[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.1.0...v1.2.0
