@@ -59,9 +59,11 @@ Take one before every recreate that touches the world: an image update, a preset
 rcon stays inside the container; nothing on the host listens for it. Run a client in the container's namespace:
 
 ```bash
-# in-game admin commands over rcon, password from .env
+# in-game admin commands over rcon, password from .env, handed to docker by
+# name (-e PW) so it is on no command line
+PW="$(grep ^ZOMBOID_SERVER_RCON_PASSWORD= .env | cut -d= -f2-)" \
 docker run --rm -i --network "container:$(docker compose -p zomboid ps -q zomboid-server)" \
-  -e PW="$(grep ^ZOMBOID_SERVER_RCON_PASSWORD= .env | cut -d= -f2-)" python:3.13-alpine \
+  -e PW python:3.13-alpine \
   python3 -c 'import socket,struct,os
 def pkt(i,t,b): d=struct.pack("<ii",i,t)+b.encode()+b"\x00\x00"; return struct.pack("<i",len(d))+d
 s=socket.create_connection(("127.0.0.1",27015),timeout=10)

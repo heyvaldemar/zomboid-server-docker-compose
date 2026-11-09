@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Security
+
+- **The rcon example in the README hands the password to docker by name.** It ran `docker run … -e PW="$(grep … .env …)"`, which put the rcon password in the docker CLI's arguments, readable by every user on the host with `ps`. It now sets `PW` for that one command and passes `-e PW`. The jediacademy README carried the same command until its v1.3.0. Fleet conformance now reads README shell blocks and flags any value expanded into `-e NAME=`, so the shape cannot come back unseen.
 
 ## [1.3.0] - 2026-11-08
 
