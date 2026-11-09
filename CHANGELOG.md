@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.3.1] - 2026-11-08
+
 ### Security
 
 - **The rcon example in the README hands the password to docker by name.** It ran `docker run … -e PW="$(grep … .env …)"`, which put the rcon password in the docker CLI's arguments, readable by every user on the host with `ps`. It now sets `PW` for that one command and passes `-e PW`. The jediacademy README carried the same command until its v1.3.0. Fleet conformance now reads README shell blocks and flags any value expanded into `-e NAME=`, so the shape cannot come back unseen.
@@ -84,7 +88,8 @@ west stable tag on Docker Hub.
   suite. It deliberately does not boot the game: the first start is a 10 GB
   download.
 
-[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.0...v1.2.1
