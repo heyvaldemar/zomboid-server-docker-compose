@@ -105,7 +105,9 @@ jobs:
         # Pinned, and the same image a maintainer runs locally: Ubuntu's
         # packaged shellcheck is a different version with different defaults.
         run: |
-          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 tests/e2e-healthcheck.sh
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 \
+            tools/*.sh scripts/*.sh tests/*.sh update.sh \
+            tests/fixtures/fake-entry.sh tests/fixtures/fake-healthcheck.sh tests/fixtures/admin-password.sh
 
       - name: The health check goes by the game's answer, in the pinned image
         # tools/healthcheck.sh is healthy only on the server's reply to
@@ -116,6 +118,14 @@ jobs:
         run: |
           chmod +x tests/e2e-healthcheck.sh
           ./tests/e2e-healthcheck.sh
+
+      - name: The entrypoint puts both passwords where the game reads them, and on no command line
+        # tools/start.sh in the pinned image, with a stand-in for the image's
+        # entry.sh that asks for the admin password as the game does: the rcon
+        # password in the ini, the admin password answered on the console only
+        # when asked, both handed to the image empty, neither in docker logs,
+        # and a start refused on a password it could not keep out of them.
+        run: bash tests/e2e-start.sh
 
       - name: The refresh never recreates a server it cannot count
         # A fixture answers A2S with two players, three behind the challenge,
@@ -146,6 +156,13 @@ jobs:
       contents: read
     env:
       COMPOSE: docker compose -f zomboid-server-docker-compose.yml -p zomboid
+      # tests/secret-probe.sh: the admin password and the rcon password each get
+      # a value of its own, and neither may reach docker compose logs, the
+      # game's own logs or a command line, in the container or on the host.
+      PROBE_PROJECT: zomboid
+      PROBE_EXPECT: ZOMBOID_SERVER_ADMIN_PASSWORD ZOMBOID_SERVER_RCON_PASSWORD
+      # The game's own logs: the console copy it writes, and the day's logs.
+      PROBE_GAME_LOGS: zomboid-server:/home/steam/Zomboid/server-console.txt zomboid-server:/home/steam/Zomboid/Logs/*.txt
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,8 +194,8 @@ jobs:
       - name: First start - the game is downloaded and the world created
         run: |
           cp .env.example .env
-          sed -i -e "s/^ZOMBOID_SERVER_ADMIN_PASSWORD=.*/ZOMBOID_SERVER_ADMIN_PASSWORD=$(openssl rand -hex 16)/" \
-                 -e "s/^ZOMBOID_SERVER_RCON_PASSWORD=.*/ZOMBOID_SERVER_RCON_PASSWORD=$(openssl rand -hex 16)/" .env
+          # A value of its own for the admin password and the rcon password.
+          tests/secret-probe.sh plant
           docker volume create zomboid-server-data >/dev/null
           docker volume create zomboid-server-game >/dev/null
           $COMPOSE up -d
@@ -196,7 +213,11 @@ jobs:
           cid="$($COMPOSE ps -q zomboid-server)"
           for _ in $(seq 1 180); do
             s="$(docker inspect "$cid" --format '{{.State.Health.Status}}' 2>/dev/null || echo none)"
-            [ "$s" = healthy ] && { echo "health: $s"; docker exec "$cid" bash /healthcheck.sh 16261; exit 0; }
+            if [ "$s" = healthy ]; then
+              echo "health: $s"
+              docker exec "$cid" bash /healthcheck.sh 16261 || exit 1
+              tests/secret-probe.sh check "first start"; exit $?
+            fi
             [ "$s" = unhealthy ] && break
             sleep 10
           done
@@ -207,6 +228,96 @@ jobs:
           echo "--- UDP sockets in the container"
           docker exec "$cid" cat /proc/net/udp
           exit 1
+
+      - name: The admin account was made on the console with the password from .env; rcon takes the one in the ini
+        # Neither password is on a command line any more, so each is proven
+        # where it now lives: the account's stored hash against the planted
+        # admin password (and a wrong one, which must not match), and an rcon
+        # login with the planted rcon password (and a wrong one, refused).
+        run: |
+          cid="$($COMPOSE ps -q zomboid-server)"
+          logs="$(docker logs "$cid" 2>&1)"
+          grep -a -E "start.sh:|Command line admin password|administrator password|Confirm the password|Administrator account" <<<"$logs"
+          grep -q "Command line admin password: null" <<<"$logs" || { echo "::error::the server did not start without an admin password on its command line"; exit 1; }
+          grep -q "Administrator account '.*' created" <<<"$logs" || { echo "::error::no admin account was created"; exit 1; }
+          echo "the ini, once the server has started: $(docker exec "$cid" stat -c '%U %a' /home/steam/Zomboid/Server/servertest.ini)"
+          apw="$(sed -n 's/^ZOMBOID_SERVER_ADMIN_PASSWORD=//p' .env)"
+          printf '%s\n' "$apw" | tests/fixtures/admin-password.sh admin || { echo "::error::the admin account does not have the password from .env"; exit 1; }
+          if printf 'w%s\n' "$apw" | tests/fixtures/admin-password.sh admin; then echo "::error::a wrong password matched the admin account; the check proves nothing"; exit 1; fi
+          # rcon: the login read to its verdict, then one command and its own
+          # reply; a wrong password must exit 3, not pass as a login.
+          reply="$(tools/rcon.sh players)" || { echo "::error::tools/rcon.sh with the password in the ini failed"; exit 1; }
+          echo "rcon players, one command, its reply: $(head -1 <<<"$reply")"
+          grep -q "Players connected" <<<"$reply" || { echo "::error::the reply to players is not the player list"; exit 1; }
+          awk -F= '$1 == "ZOMBOID_SERVER_RCON_PASSWORD" { print $0 "w"; next } { print }' .env > "$RUNNER_TEMP/wrong.env"
+          n=0; ZOMBOID_ENV_FILE="$RUNNER_TEMP/wrong.env" tools/rcon.sh players >/dev/null 2>&1 || n=$?
+          rm -f "$RUNNER_TEMP/wrong.env"
+          [ "$n" = 3 ] || { echo "::error::a wrong rcon password: exit $n, not 3"; exit 1; }
+          echo "a wrong rcon password: refused, exit 3"
+
+      - name: The backup and set-password, with the probe watching their command lines
+        # The backup asks the server to save over rcon, the password on stdin.
+        # set-password.sh reads a new admin password from stdin (-); the hash
+        # proves it was set. A password given as its argument is refused.
+        run: |
+          rc=0
+          # shellcheck disable=SC2016   # $1 and $2 are bash -c's own arguments
+          tests/secret-probe.sh during "backup" bash -c 'ZOMBOID_BACKUP_DIR="$2" scripts/backup.sh > "$1" 2>&1' _ "$RUNNER_TEMP/backup.out" "$RUNNER_TEMP/backups" || rc=$?
+          cat "$RUNNER_TEMP/backup.out"
+          [ "$rc" = 0 ] || { echo "::error::the backup exited $rc"; exit 1; }
+          grep -q "the server saved the world (Saving finish)" "$RUNNER_TEMP/backup.out" || { echo "::error::the backup did not see the server save"; exit 1; }
+          ls "$RUNNER_TEMP/backups"
+          new="n$(openssl rand -hex 10)"
+          echo "::add-mask::$new"
+          printf '%s\n' "$new" > "$RUNNER_TEMP/new-admin"
+          # Its output up to the line before the new password, which it prints
+          # once, at the end, and which is masked here as well.
+          rc=0
+          # shellcheck disable=SC2016   # $1 is bash -c's own argument
+          tests/secret-probe.sh during "set-password" bash -c 'scripts/set-password.sh admin - > "$1" 2>&1' _ "$RUNNER_TEMP/set-password.out" < "$RUNNER_TEMP/new-admin" || rc=$?
+          sed '/shown once/q' "$RUNNER_TEMP/set-password.out"
+          [ "$rc" = 0 ] || { echo "::error::set-password.sh, watched by the probe, exited non-zero"; exit 1; }
+          tests/fixtures/admin-password.sh admin < "$RUNNER_TEMP/new-admin" || { echo "::error::set-password.sh did not set the password it read"; exit 1; }
+          n=0; scripts/set-password.sh admin "x$(openssl rand -hex 4)" >/dev/null 2>&1 || n=$?
+          [ "$n" = 2 ] || { echo "::error::set-password.sh took a password as its argument (exit $n)"; exit 1; }
+          echo "a password as the argument: refused, exit 2"
+
+      - name: After a restart - the probe looks once more, the day's logs and the archived ones
+        # The server moves the last start's logs into a folder under Logs/ when
+        # it starts again; they are what an operator finds there, so they are
+        # searched too.
+        env:
+          PROBE_GAME_LOGS: zomboid-server:/home/steam/Zomboid/server-console.txt zomboid-server:/home/steam/Zomboid/Logs/*.txt zomboid-server:/home/steam/Zomboid/Logs/*/*.txt
+        run: |
+          cid="$($COMPOSE ps -q zomboid-server)"
+          t="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # A STOP SAVES THE WORLD. Docker's SIGTERM reaches tools/start.sh,
+          # process 1, which tells the server on its console to quit; up to
+          # v1.3.1 nothing got it, and Docker killed the server when the
+          # two-minute grace period ran out (tests/clean-stop.sh on v1.3.1:
+          # 122 s of 120, exit 137, run 43584727124).
+          t0=$SECONDS
+          $COMPOSE restart zomboid-server >/dev/null
+          secs=$((SECONDS - t0))
+          echo "the restart took ${secs}s (grace period 120 s)"
+          docker logs --since "$t" "$cid" 2>&1 | grep -a -i -E "start.sh: stopping|quit|saving|shutting|exiting" | head -12
+          [ "$secs" -lt 110 ] || { echo "::error::the server did not quit within the grace period; Docker killed it"; exit 1; }
+          docker logs --since "$t" "$cid" 2>&1 | grep -q "start.sh: stopping: the server is told to save the world and quit" || { echo "::error::the stop never reached the server's console"; exit 1; }
+          for _ in $(seq 1 60); do
+            [ "$(docker inspect "$cid" --format '{{.State.Health.Status}}')" = healthy ] && docker exec "$cid" bash /healthcheck.sh 16261 >/dev/null 2>&1 && break
+            sleep 10
+          done
+          docker exec "$cid" bash /healthcheck.sh 16261
+          echo "the logs folder after a second start:"
+          docker exec "$cid" sh -c 'cd /home/steam/Zomboid/Logs && find . -name "*.txt" | sort | head -20'
+          # A world with its admin account: no question on the console, nothing
+          # written to it, and the account keeps the password set-password.sh
+          # gave it, not the one in .env.
+          asked="$(docker logs --since "$t" "$cid" 2>&1 | grep -c "Enter new administrator password" || true)"
+          echo "after a restart, the server asked for an admin password $asked time(s)"
+          [ "$asked" = 0 ] || { echo "::error::the server asked for an admin password on a world that has its account"; exit 1; }
+          tests/fixtures/admin-password.sh admin < "$RUNNER_TEMP/new-admin" || { echo "::error::a restart changed the admin password"; exit 1; }
+          tests/secret-probe.sh check "after a restart"
 
       - name: Plant - the process that answers, stopped, keeps the old check green and turns this one red
         # The check up to v1.2.2 was ProjectZomboid in /proc. SIGSTOP on the process that
@@ -238,6 +349,15 @@ jobs:
             sleep 2
           done
           echo "::error::the game did not answer again after SIGCONT"; exit 1
+
+      - name: The probe sees what it looks for - a canary in a log and on two command lines
+        run: tests/secret-probe.sh selftest
+
+      - name: A stop - timed, its exit code, and the world saved (tests/clean-stop.sh)
+        env:
+          CLEAN_STOP_PROJECT: zomboid
+          CLEAN_STOP_COMPOSE: zomboid-server-docker-compose.yml
+        run: tests/clean-stop.sh zomboid-server "Saving finish"
 
       - name: Stop
         if: always()

@@ -10,6 +10,9 @@
 #   answers     bound to the interface address, as srcds binds it: healthy
 #   challenge   S2C_CHALLENGE first, the info reply only to a query carrying
 #               its bytes: healthy
+#   challenge-nl  the same with a newline byte in the challenge, answered
+#               only when query and challenge come as one 29-byte datagram:
+#               healthy, and the stand-in saw 29
 #   0.0.0.0     bound to every address and deaf to a query from 127.0.0.1,
 #               as Left 4 Dead 2 was in CI: healthy, asked at the
 #               container's own address
@@ -66,6 +69,11 @@ check
 standin challenge iface || fail "the challenge stand-in never bound its port"
 check
 [ "$rc" = 0 ] && pass "a challenge first, then the answer: healthy" || fail "challenge: exit $rc, $out"
+
+standin challenge-nl iface || fail "the challenge-nl stand-in never bound its port"
+check
+seen=$(docker logs "$NET" 2>&1 | grep '^seen ' | tr '\n' ' ')
+[ "$rc" = 0 ] && [[ $seen == *"seen 29 "* ]] && pass "a challenge with a newline byte in it: one 29-byte datagram, healthy (the stand-in saw: $seen)" || fail "challenge with a newline byte: exit $rc, the stand-in saw: ${seen:-nothing}"
 
 standin noloop 0.0.0.0 || fail "the 0.0.0.0 stand-in never bound its port"
 check

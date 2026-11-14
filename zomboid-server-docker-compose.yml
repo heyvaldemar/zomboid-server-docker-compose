@@ -14,6 +14,8 @@ x-images:
 services:
   zomboid-server:
     image: *zomboid-server-image
+    # tools/start.sh, then the image's own entry.sh.
+    entrypoint: ["/bin/bash", "/start.sh"]
     # Handles untrusted input from the internet and cannot gain privileges
     # through a setuid binary.
     security_opt:
@@ -62,8 +64,16 @@ services:
       # build for weeks before anyone read the build id.
       FORCEUPDATE: "true"
       ADMINUSERNAME: ${ZOMBOID_SERVER_ADMIN_USERNAME:-admin}
-      ADMINPASSWORD: ${ZOMBOID_SERVER_ADMIN_PASSWORD:?set in .env - see .env.example for generation command}
-      RCONPASSWORD: ${ZOMBOID_SERVER_RCON_PASSWORD:?set in .env - see .env.example for generation command}
+      # NO PASSWORD THROUGH THE IMAGE. It put the admin password on the game's
+      # command line, which the launcher prints into these logs, and wrote the
+      # rcon password with sed, on sed's command line. Both are handed over
+      # empty, and tools/start.sh, the entrypoint below, does their work: the
+      # rcon password into the ini, the admin password to the console when the
+      # server asks for it.
+      ADMINPASSWORD: ""
+      RCONPASSWORD: ""
+      PZT_ADMIN_PASSWORD: ${ZOMBOID_SERVER_ADMIN_PASSWORD:?set in .env - see .env.example for generation command}
+      PZT_RCON_PASSWORD: ${ZOMBOID_SERVER_RCON_PASSWORD:?set in .env - see .env.example for generation command}
       MAXPLAYERS: ${ZOMBOID_SERVER_MAX_PLAYERS:-8}
       # false = not listed in the public browser. Friends connect by address.
       PUBLIC: ${ZOMBOID_SERVER_PUBLIC:-false}
@@ -84,13 +94,16 @@ services:
       - zomboid-server-game:/home/steam/pz-dedicated
       # The health check: A2S_INFO to the game port (see healthcheck: below).
       - ./tools/healthcheck.sh:/healthcheck.sh:ro
+      # The entrypoint: both passwords where the game reads them, none on a
+      # command line or in the logs (tools/start.sh).
+      - ./tools/start.sh:/start.sh:ro
     healthcheck:
       # THE GAME'S OWN ANSWER, NOT ITS PROCESS. tools/healthcheck.sh sends
       # A2S_INFO, the Steam query every server browser sends, to the game port
       # and is healthy only on the server's reply. Up to v1.2.2 this looked for
       # ProjectZomboid in /proc, which a hung or stopped server keeps; CI stops
-      # it with SIGSTOP and requires red. Not rcon: it answers each command one
-      # packet late. While SteamCMD downloads and the world loads nothing
+      # it with SIGSTOP and requires red. Not rcon: it needs the password and a
+      # login first. While SteamCMD downloads and the world loads nothing
       # answers, so the check is red then. Each check ends within 7 seconds.
       # It asks from inside the container: it does not prove the ports are
       # published on the host or open in a firewall.
@@ -102,9 +115,10 @@ services:
       # world; a start period shorter than that marks the container unhealthy
       # for the whole of it.
       start_period: ${ZOMBOID_SERVER_START_PERIOD:-25m}
-    # THE WORLD IS SAVED ON THE WAY OUT. Two minutes: a large map with many
-    # loaded chunks takes well over the ten seconds docker allows by default,
-    # and a SIGKILL in the middle of it is a corrupted save.
+    # THE WORLD IS SAVED ON THE WAY OUT: tools/start.sh, process 1, turns
+    # Docker's SIGTERM into quit on the server's console. Two minutes: a large
+    # map with many loaded chunks takes well over the ten seconds docker
+    # allows by default, and a SIGKILL in the middle of it is a corrupted save.
     stop_grace_period: ${ZOMBOID_SERVER_STOP_GRACE_PERIOD:-2m}
     restart: unless-stopped
     logging:

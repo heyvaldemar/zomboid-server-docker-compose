@@ -10,8 +10,10 @@
 # A hung or stopped server keeps its process; CI stops it with SIGSTOP and
 # requires this check red while that one stays green.
 #
-# NOT RCON. Project Zomboid answers rcon command N when command N+1 is sent,
-# so a one-question check would read an empty packet; A2S has no such lag.
+# NOT RCON. It needs the password and a login before any answer; A2S asks
+# nothing of the caller. (Up to v1.3.1 this said Project Zomboid answers rcon
+# command N when command N+1 is sent; that was a login answer of two packets
+# read as one, see tools/rcon.sh.)
 #
 # NOT THE LOG. An empty server writes nothing for hours while it is perfectly
 # well; it still answers A2S_INFO, which is how a server browser lists it.
@@ -39,7 +41,7 @@
 # firewall lets players in.
 #
 # Usage: healthcheck.sh [port]   (the game port, default 16261). Needs bash, timeout, head,
-# od and tr, which the image has (tests/e2e-healthcheck.sh runs it there).
+# od, tr, mktemp and cat, which the image has (tests/e2e-healthcheck.sh runs it there).
 #
 # Read whole before it runs: one brace group, ending in exit
 # (bash reads a script as it runs it, so a file rewritten under a running
@@ -74,11 +76,21 @@ if [ "${#addrs[@]}" = 0 ]; then
 fi
 
 ask() {  # address, a printf format of the request -> the reply's first 9 bytes, in hex
-  { exec 3<>"/dev/udp/$1/$port"; } 2>/dev/null || return 0
+  # ONE DATAGRAM, ONE WRITE. bash writes printf's output line by line, so a
+  # request printed straight to the socket went out in two datagrams wherever
+  # it held a newline byte, and the server's challenge, echoed back, holds one
+  # now and then (0x0a in four random bytes). The request is written to a file
+  # and sent by one cat, one write().
+  local f
+  f=$(mktemp) || return 0
   # shellcheck disable=SC2059   # the request is a printf format on purpose: \xHH escapes
-  printf "$2" >&3
-  timeout 1.5 head -c 9 <&3 | od -An -v -tx1 | tr -d ' \n'
-  exec 3>&-
+  printf "$2" >"$f"
+  if { exec 3<>"/dev/udp/$1/$port"; } 2>/dev/null; then
+    cat "$f" >&3
+    timeout 1.5 head -c 9 <&3 | od -An -v -tx1 | tr -d ' \n'
+    exec 3>&-
+  fi
+  rm -f "$f"
 }
 
 for try in 1 2; do
