@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_(no unreleased changes yet)_
+
+## [1.4.0] - 2026-11-14
+
 ### Security
 
 - **The admin password is no longer on the game's command line or in `docker compose logs`.** The image passed it as `-adminpassword`, and the game's launcher prints every argument it gets (`pzexe: arg: …`), so on every start it was in `docker compose logs`, on the command line of the game's processes, readable by every process in the container, and in `ps` on the host (CI run 43582000653 found it in all three). `tools/start.sh` is now the entrypoint. The image gets the password empty; the server gets it on its console, on stdin, and only when it asks for one, which is on a world without its admin account, the first start. Only the game's own question line counts, and only until the server first answers A2S_INFO, before which no player can be on; text a player can get printed never draws the password out (`tests/e2e-start.sh` plants both). Project Zomboid 42.20.4 creates the account from the console; CI checks the account's stored hash against the password. **If you posted this server's logs anywhere, change the admin password** (`/changepwd` in game, or `scripts/set-password.sh admin -`): docker keeps earlier starts' output in its log files until they rotate out.
@@ -108,7 +112,8 @@ west stable tag on Docker Hub.
   suite. It deliberately does not boot the game: the first start is a 10 GB
   download.
 
-[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/heyvaldemar/zomboid-server-docker-compose/compare/v1.2.1...v1.2.2
