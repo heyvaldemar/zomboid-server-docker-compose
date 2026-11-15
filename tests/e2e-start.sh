@@ -57,8 +57,8 @@ run() {  # mode, then NAME=value for the environment: runs start.sh with the sta
   docker rm -f "$NAME" >/dev/null 2>&1
   # The values go in through the environment of docker itself (export is a
   # builtin, and -e NAME carries no value), as compose hands them over.
-  ( for kv in "$@"; do export "${kv?}"; done; docker run $detach --name "$NAME" --platform linux/amd64 --entrypoint /bin/bash \
-    -e MODE="$mode" -e SERVERNAME=servertest -e PZT_ADMIN_PASSWORD -e PZT_RCON_PASSWORD \
+  ( export MODE="$mode"; for kv in "$@"; do export "${kv?}"; done; docker run $detach --name "$NAME" --platform linux/amd64 --entrypoint /bin/bash \
+    -e MODE -e SERVERNAME=servertest -e PZT_ADMIN_PASSWORD -e PZT_RCON_PASSWORD \
     -v "$NAME:/home/steam/Zomboid" \
     -v "$PWD/tools/start.sh:/start.sh:ro" \
     -v "$PWD/tests/fixtures/fake-entry.sh:/server/scripts/entry.sh:ro" \

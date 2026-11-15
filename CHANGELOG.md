@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_(no unreleased changes yet)_
+### Changed
+
+- **`tests/e2e-start.sh` hands the stand-in its mode by name** (`-e MODE`, the value in docker's environment), as it already did the passwords, so no value is on docker's command line. Tests only.
 
 ## [1.4.0] - 2026-11-14
 
