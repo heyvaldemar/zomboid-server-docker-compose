@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The secret probe no longer fails when a process ends while it reads the container.** `tests/secret-probe.sh` read each process's command line in a loop that ended on the status of its last test, so a short-lived process last in glob order and gone by the read failed the whole container as unreadable, while an unreadable process anywhere else passed. Now a process gone by the read is not counted, every process still there must be read, and a container that cannot be entered or has nothing to read still fails. Found on the HumanitZ template, where it turned a digest refresh red; against a container starting processes in a loop the old loop failed 170 of 200 reads there and the new one none ([heyvaldemar/humanitz-server-docker-compose#3](https://github.com/heyvaldemar/humanitz-server-docker-compose/pull/3)). CI only; nothing a deployment runs changes.
+
 ### Changed
 
 - **`tests/e2e-start.sh` hands the stand-in its mode by name** (`-e MODE`, the value in docker's environment), as it already did the passwords, so no value is on docker's command line. Tests only.
